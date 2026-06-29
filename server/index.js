@@ -11,10 +11,10 @@ app.use(cors());
 
 const FRACTTAL_TASKS_URL = 'https://app.fracttal.com/api/tasks_todo/';
 let tokenCache = { token: null, expiresAt: null };
-
-// Cache de tareas para no recargar en cada página
-let tareasCache = { data: null, timestamp: null };
-const CACHE_TTL = 5 * 60 * 1000; // 5 minutos
+let tareasCache = [];
+let cacheTimestamp = null;
+let cargando = false;
+const CACHE_TTL = 5 * 60 * 1000;
 
 async function getFracttalToken() {
   const now = Date.now();
@@ -31,69 +31,84 @@ async function getFracttalToken() {
   return tokenCache.token;
 }
 
-async function cargarTodasLasTareas(token) {
-  const ahora = Date.now();
-  if (tareasCache.data && tareasCache.timestamp && ahora - tareasCache.timestamp < CACHE_TTL) {
-    return tareasCache.data;
+async function recargarCache() {
+  if (cargando) return;
+  cargando = true;
+  try {
+    const token = await getFracttalToken();
+    let todas = [];
+    let offset = 0;
+    const limit = 200;
+    let total = 9999;
+
+    while (offset < total) {
+      const r = await axios.get(FRACTTAL_TASKS_URL, {
+        headers: { Authorization: `Bearer ${token}` },
+        params: { limit, offset },
+        timeout: 30000
+      });
+      const lote = r.data.data || [];
+      total = r.data.total || 0;
+      todas = todas.concat(lote);
+      offset += limit;
+      if (lote.length < limit) break;
+    }
+
+    // Filtrar con activo y ordenar por id DESC igual que Fracttal
+    const conActivo = todas
+      .filter(t => (t.item_description || '').trim().length > 0)
+      .sort((a, b) => b.id - a.id);
+
+    tareasCache = conActivo;
+    cacheTimestamp = Date.now();
+    console.log(`Cache listo: ${conActivo.length} tareas con activo (de ${total} total)`);
+  } catch (e) {
+    console.error('Error recargando cache:', e.message);
+  } finally {
+    cargando = false;
   }
-
-  console.log('Cargando todas las tareas de Fracttal...');
-  let todas = [];
-  let offset = 0;
-  const limit = 200;
-  let total = 9999;
-
-  while (offset < total) {
-    const r = await axios.get(FRACTTAL_TASKS_URL, {
-      headers: { Authorization: `Bearer ${token}` },
-      params: { limit, offset }
-    });
-    const lote = r.data.data || [];
-    total = r.data.total || 0;
-    todas = todas.concat(lote);
-    offset += limit;
-    if (lote.length < limit) break;
-    console.log(`Cargadas ${todas.length} de ${total}`);
-  }
-
-  // Filtrar solo con activo registrado
-  const conActivo = todas.filter(t => (t.item_description || '').trim().length > 0);
-
-  // Ordenar por id descendente = igual que Fracttal
-  conActivo.sort((a, b) => b.id - a.id);
-
-  console.log(`Total con activo: ${conActivo.length} de ${total}`);
-
-  tareasCache.data = { tareas: conActivo, totalAPI: total };
-  tareasCache.timestamp = ahora;
-  return tareasCache.data;
 }
 
-app.get('/api/health', (req, res) => res.json({ status: 'ok' }));
+// Cargar al iniciar el servidor
+recargarCache();
+
+app.get('/api/health', (req, res) => {
+  res.json({
+    status: 'ok',
+    cache_tareas: tareasCache.length,
+    cache_edad_min: cacheTimestamp ? Math.round((Date.now() - cacheTimestamp) / 60000) : null,
+    cargando
+  });
+});
 
 app.get('/api/tareas-pendientes', async (req, res) => {
   try {
-    const token = await getFracttalToken();
-    const page = parseInt(req.query.page) || 0;
-    const limit = 50;
-
-    // Si es página 0, invalidar cache para refrescar
-    if (page === 0 && req.query.refresh === 'true') {
-      tareasCache.data = null;
+    // Si el cache está vacío esperar a que cargue
+    if (tareasCache.length === 0 && !cargando) {
+      await recargarCache();
     }
 
-    const { tareas, totalAPI } = await cargarTodasLasTareas(token);
+    // Si pidieron refresh, recargar en background
+    if (req.query.refresh === 'true') {
+      recargarCache();
+    }
 
+    // Si cache expiró, recargar en background (y servir lo que hay)
+    if (cacheTimestamp && Date.now() - cacheTimestamp > CACHE_TTL) {
+      recargarCache();
+    }
+
+    const page = parseInt(req.query.page) || 0;
+    const limit = 50;
     const inicio = page * limit;
-    const fin = inicio + limit;
-    const pagina = tareas.slice(inicio, fin);
+    const pagina = tareasCache.slice(inicio, inicio + limit);
 
     res.json({
       success: true,
-      total: totalAPI,
-      total_con_activo: tareas.length,
+      total: tareasCache.length,
       page,
-      hay_mas: fin < tareas.length,
+      hay_mas: inicio + limit < tareasCache.length,
+      cargando,
       data: pagina.map(t => ({
         id: t.id,
         activo_codigo: t.code || '',
@@ -124,4 +139,4 @@ if (process.env.NODE_ENV === 'production') {
   app.use(express.static(path.join(__dirname, '../client/build')));
   app.get('*', (req, res) => res.sendFile(path.join(__dirname, '../client/build', 'index.html')));
 }
-app.listen(PORT, () => console.log(`Puerto ${PORT}`));
+app.listen(PORT, () => console.log(`Puerto ${PORT} - Cargando cache inicial...`));
