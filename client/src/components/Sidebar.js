@@ -13,27 +13,24 @@ const s = {
   chip: { fontSize: '11px', padding: '3px 10px', borderRadius: '12px', border: '1px solid #e2e8f0', cursor: 'pointer', background: '#fff', color: '#4a5568' },
   chipActivo: { background: '#4299e1', color: '#fff', borderColor: '#4299e1' },
   lista: { flex: 1, overflowY: 'auto', padding: '12px' },
-  loading: { display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '48px 16px', gap: '16px' },
+  loading: { display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '48px 16px', gap: '12px' },
   spinner: { width: '28px', height: '28px', border: '3px solid #e2e8f0', borderTop: '3px solid #4299e1', borderRadius: '50%', animation: 'spin 0.8s linear infinite' },
-  progressBar: { width: '200px', height: '4px', background: '#e2e8f0', borderRadius: '2px', overflow: 'hidden' },
-  progressFill: { height: '100%', background: '#4299e1', borderRadius: '2px', transition: 'width 0.3s ease' },
   error: { margin: '16px', padding: '12px', background: '#fff5f5', border: '1px solid #fc8181', borderRadius: '8px', color: '#c53030', fontSize: '13px', textAlign: 'center' },
   vacio: { padding: '48px 16px', textAlign: 'center', color: '#718096', fontSize: '14px' },
   footer: { fontSize: '11px', color: '#a0aec0', textAlign: 'center', padding: '8px', borderTop: '1px solid #e2e8f0' },
-  contador: { fontSize: '11px', color: '#a0aec0', textAlign: 'center', padding: '6px', borderTop: '1px solid #f0f0f0' }
+  rango: { fontSize: '10px', color: '#a0aec0', textAlign: 'center', padding: '4px 16px', background: '#f7f9fc' }
 };
 
 const FILTROS = ['Todos', 'Atrasadas', 'Planificadas', 'No planificadas'];
-const VISIBLE_STEP = 100; // cuántas mostrar por vez al hacer scroll
+const VISIBLE_STEP = 100;
 
-export default function Sidebar({ tareas, total, loading, progreso, error, ultimaActualizacion, onActualizar, onSeleccionarTarea, tareaSeleccionada }) {
+export default function Sidebar({ tareas, total, loading, error, ultimaActualizacion, onActualizar, onSeleccionarTarea, tareaSeleccionada }) {
   const [busqueda, setBusqueda] = useState('');
   const [filtro, setFiltro] = useState('Todos');
   const [rotando, setRotando] = useState(false);
   const [visibles, setVisibles] = useState(VISIBLE_STEP);
   const listaRef = useRef(null);
 
-  // Filtrar tareas
   const filtradas = tareas.filter(t => {
     const txt = busqueda.toLowerCase();
     const ok = !txt ||
@@ -48,16 +45,14 @@ export default function Sidebar({ tareas, total, loading, progreso, error, ultim
     return true;
   });
 
-  // Reset visibles cuando cambia filtro/búsqueda
   useEffect(() => { setVisibles(VISIBLE_STEP); }, [busqueda, filtro]);
 
-  // Scroll infinito automático
   useEffect(() => {
     const lista = listaRef.current;
     if (!lista) return;
     const handleScroll = () => {
       const { scrollTop, scrollHeight, clientHeight } = lista;
-      if (scrollTop + clientHeight >= scrollHeight - 200) {
+      if (scrollTop + clientHeight >= scrollHeight - 300) {
         setVisibles(prev => Math.min(prev + VISIBLE_STEP, filtradas.length));
       }
     };
@@ -73,6 +68,12 @@ export default function Sidebar({ tareas, total, loading, progreso, error, ultim
 
   const mostradas = filtradas.slice(0, visibles);
 
+  // Calcular rango de fechas actual
+  const hoy = new Date();
+  const desde = new Date(hoy); desde.setMonth(desde.getMonth() - 3);
+  const hasta = new Date(hoy); hasta.setDate(hasta.getDate() + 90);
+  const fmtFecha = d => d.toLocaleDateString('es-MX', { day: 'numeric', month: 'short', year: 'numeric' });
+
   return (
     <aside style={s.sidebar}>
       <style>{`@keyframes spin{to{transform:rotate(360deg)}} .lista::-webkit-scrollbar{width:4px} .lista::-webkit-scrollbar-thumb{background:#cbd5e0;border-radius:2px}`}</style>
@@ -81,7 +82,7 @@ export default function Sidebar({ tareas, total, loading, progreso, error, ultim
         <div style={s.fila}>
           <span style={s.titulo}>Tareas pendientes</span>
           <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-            <span style={s.badge}>{loading ? '...' : total.toLocaleString('es-MX')}</span>
+            <span style={s.badge}>{loading ? '...' : total}</span>
             <button style={s.btnRefresh} onClick={handleRefresh} disabled={loading} title="Actualizar">
               <span style={{ display: 'inline-block', transform: rotando ? 'rotate(360deg)' : 'none', transition: 'transform 0.8s' }}>↺</span>
             </button>
@@ -95,15 +96,15 @@ export default function Sidebar({ tareas, total, loading, progreso, error, ultim
         </div>
       </div>
 
+      <div style={s.rango}>
+        📅 {fmtFecha(desde)} — {fmtFecha(hasta)}
+      </div>
+
       <div ref={listaRef} className="lista" style={s.lista}>
         {loading && (
           <div style={s.loading}>
             <div style={s.spinner} />
-            <span style={{ fontSize: '13px', color: '#718096' }}>Descargando tareas...</span>
-            <div style={s.progressBar}>
-              <div style={{ ...s.progressFill, width: `${progreso}%` }} />
-            </div>
-            <span style={{ fontSize: '11px', color: '#a0aec0' }}>{progreso}%</span>
+            <span style={{ fontSize: '13px', color: '#718096' }}>Cargando tareas...</span>
           </div>
         )}
         {!loading && error && (
@@ -114,21 +115,21 @@ export default function Sidebar({ tareas, total, loading, progreso, error, ultim
           </div>
         )}
         {!loading && !error && filtradas.length === 0 && (
-          <div style={s.vacio}>{busqueda ? 'Sin resultados' : 'No hay tareas pendientes'}</div>
+          <div style={s.vacio}>{busqueda ? 'Sin resultados' : 'No hay tareas en este rango de fechas'}</div>
         )}
         {!loading && !error && mostradas.map(t => (
           <TareaCard key={t.id} tarea={t} onClick={onSeleccionarTarea} seleccionada={tareaSeleccionada?.id === t.id} />
         ))}
         {!loading && visibles < filtradas.length && (
-          <div style={s.contador}>
-            Mostrando {visibles.toLocaleString()} de {filtradas.length.toLocaleString()} — baja para ver más
+          <div style={{ textAlign: 'center', padding: '8px', fontSize: '11px', color: '#a0aec0' }}>
+            {visibles} de {filtradas.length} — baja para ver más
           </div>
         )}
       </div>
 
       {ultimaActualizacion && (
         <div style={s.footer}>
-          {total.toLocaleString('es-MX')} tareas · {ultimaActualizacion.toLocaleTimeString('es-MX')}
+          {total} tareas · {ultimaActualizacion.toLocaleTimeString('es-MX')}
         </div>
       )}
     </aside>
