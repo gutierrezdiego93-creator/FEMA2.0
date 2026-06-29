@@ -29,8 +29,14 @@ async function getFracttalToken() {
 
 app.get('/api/health', (req, res) => res.json({ status: 'ok' }));
 
-// Devuelve UNA página específica — el cliente pide todas en paralelo
 app.get('/api/tareas-pagina', async (req, res) => {
+  // Deshabilitar caché completamente
+  res.set({
+    'Cache-Control': 'no-store, no-cache, must-revalidate',
+    'Pragma': 'no-cache',
+    'Expires': '0'
+  });
+
   try {
     const token = await getFracttalToken();
     const offset = parseInt(req.query.offset) || 0;
