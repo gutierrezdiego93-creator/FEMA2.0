@@ -5,7 +5,7 @@ export function useTareasPendientes() {
   const [tareas, setTareas] = useState([]);
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(false);
-  const [progreso, setProgreso] = useState(0); // 0-100
+  const [progreso, setProgreso] = useState(0);
   const [error, setError] = useState(null);
   const [ultimaActualizacion, setUltimaActualizacion] = useState(null);
 
@@ -24,38 +24,37 @@ export function useTareasPendientes() {
       });
 
       const totalAPI = primera.data.total || 0;
-      setTotal(totalAPI);
-      setProgreso(10);
+      let acumuladas = [...primera.data.data];
+      setProgreso(Math.round((acumuladas.length / totalAPI) * 100));
 
-      // Calcular todos los offsets necesarios
+      // Calcular offsets restantes
       const offsets = [];
       for (let offset = LIMIT; offset < totalAPI; offset += LIMIT) {
         offsets.push(offset);
       }
 
-      // Descargar todas las páginas en paralelo
-      let todasLasTareas = [...primera.data.data];
-
-      if (offsets.length > 0) {
+      // Descargar en grupos de 3 para respetar límite del navegador
+      const GRUPO = 3;
+      for (let i = 0; i < offsets.length; i += GRUPO) {
+        const lote = offsets.slice(i, i + GRUPO);
         const resultados = await Promise.all(
-          offsets.map(offset =>
+          lote.map(offset =>
             axios.get('/api/tareas-pagina', { params: { offset, limit: LIMIT } })
               .then(r => r.data.data || [])
               .catch(() => [])
           )
         );
-        resultados.forEach(lote => {
-          todasLasTareas = todasLasTareas.concat(lote);
+        resultados.forEach(loteData => {
+          acumuladas = acumuladas.concat(loteData);
         });
+        setProgreso(Math.round((acumuladas.length / totalAPI) * 100));
       }
 
-      setProgreso(90);
-
       // Ordenar por id DESC igual que Fracttal
-      todasLasTareas.sort((a, b) => b.id - a.id);
+      acumuladas.sort((a, b) => b.id - a.id);
 
-      setTareas(todasLasTareas);
-      setTotal(todasLasTareas.length);
+      setTareas(acumuladas);
+      setTotal(acumuladas.length);
       setProgreso(100);
       setUltimaActualizacion(new Date());
 
