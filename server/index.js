@@ -29,6 +29,63 @@ async function getFracttalToken() {
 
 app.get('/api/health', (req, res) => res.json({ status: 'ok' }));
 
+// Probar distintos parámetros de orden
+app.get('/api/orden-prueba', async (req, res) => {
+  try {
+    const token = await getFracttalToken();
+    const resultados = {};
+
+    // Prueba 1: ordering=-id
+    try {
+      const r1 = await axios.get(FRACTTAL_TASKS_URL, {
+        headers: { Authorization: `Bearer ${token}` },
+        params: { limit: 3, offset: 0, ordering: '-id' }
+      });
+      resultados.ordering_menos_id = (r1.data.data || []).map(t => ({ id: t.id, item: t.item_description }));
+    } catch(e) { resultados.ordering_menos_id = 'ERROR: ' + e.message; }
+
+    // Prueba 2: sort=-id
+    try {
+      const r2 = await axios.get(FRACTTAL_TASKS_URL, {
+        headers: { Authorization: `Bearer ${token}` },
+        params: { limit: 3, offset: 0, sort: '-id' }
+      });
+      resultados.sort_menos_id = (r2.data.data || []).map(t => ({ id: t.id, item: t.item_description }));
+    } catch(e) { resultados.sort_menos_id = 'ERROR: ' + e.message; }
+
+    // Prueba 3: order_by=-id
+    try {
+      const r3 = await axios.get(FRACTTAL_TASKS_URL, {
+        headers: { Authorization: `Bearer ${token}` },
+        params: { limit: 3, offset: 0, order_by: '-id' }
+      });
+      resultados.order_by_menos_id = (r3.data.data || []).map(t => ({ id: t.id, item: t.item_description }));
+    } catch(e) { resultados.order_by_menos_id = 'ERROR: ' + e.message; }
+
+    // Prueba 4: sin ordenar (default)
+    try {
+      const r4 = await axios.get(FRACTTAL_TASKS_URL, {
+        headers: { Authorization: `Bearer ${token}` },
+        params: { limit: 3, offset: 0 }
+      });
+      resultados.sin_orden = (r4.data.data || []).map(t => ({ id: t.id, item: t.item_description }));
+    } catch(e) { resultados.sin_orden = 'ERROR: ' + e.message; }
+
+    // Prueba 5: ordering=id (ascendente)
+    try {
+      const r5 = await axios.get(FRACTTAL_TASKS_URL, {
+        headers: { Authorization: `Bearer ${token}` },
+        params: { limit: 3, offset: 0, ordering: 'id' }
+      });
+      resultados.ordering_id_asc = (r5.data.data || []).map(t => ({ id: t.id, item: t.item_description }));
+    } catch(e) { resultados.ordering_id_asc = 'ERROR: ' + e.message; }
+
+    res.json(resultados);
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
 app.get('/api/tareas-pendientes', async (req, res) => {
   try {
     const token = await getFracttalToken();
@@ -37,18 +94,15 @@ app.get('/api/tareas-pendientes', async (req, res) => {
 
     const r = await axios.get(FRACTTAL_TASKS_URL, {
       headers: { Authorization: `Bearer ${token}` },
-      params: {
-        limit,
-        offset: page * limit,
-        // Orden igual que Fracttal: id descendente (más recientes primero)
-        ordering: '-id'
-      }
+      params: { limit, offset: page * limit }
     });
 
     const todas = r.data.data || [];
     const totalAPI = r.data.total || 0;
-
     const conActivo = todas.filter(t => (t.item_description || '').trim().length > 0);
+
+    // Ordenar en el servidor por id descendente (igual que Fracttal)
+    conActivo.sort((a, b) => b.id - a.id);
 
     const tareas = conActivo.map(t => ({
       id: t.id,
@@ -78,7 +132,6 @@ app.get('/api/tareas-pendientes', async (req, res) => {
     });
 
   } catch (e) {
-    console.error('Error:', e.message);
     res.status(500).json({ success: false, error: e.message });
   }
 });
