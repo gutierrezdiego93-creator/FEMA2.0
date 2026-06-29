@@ -5,7 +5,7 @@ import PanelCentral from './components/PanelCentral';
 import { useTareasPendientes } from './hooks/useTareasPendientes';
 
 export default function App() {
-  const { tareas, totalMostradas, loading, cargandoMas, error, ultimaActualizacion, cargar, cargarMas, hayMas } = useTareasPendientes();
+  const { tareas, total, loading, cargandoMas, error, ultimaActualizacion, cargar, cargarMas, hayMas } = useTareasPendientes();
   const [tareaSeleccionada, setTareaSeleccionada] = useState(null);
   useEffect(() => { cargar(); }, [cargar]);
 
@@ -14,17 +14,10 @@ export default function App() {
       <Header />
       <div style={{ display: 'flex', flex: 1, overflow: 'hidden' }}>
         <Sidebar
-          tareas={tareas}
-          totalMostradas={totalMostradas}
-          loading={loading}
-          cargandoMas={cargandoMas}
-          error={error}
-          ultimaActualizacion={ultimaActualizacion}
-          onActualizar={cargar}
-          cargarMas={cargarMas}
-          hayMas={hayMas}
-          onSeleccionarTarea={setTareaSeleccionada}
-          tareaSeleccionada={tareaSeleccionada}
+          tareas={tareas} total={total} loading={loading} cargandoMas={cargandoMas}
+          error={error} ultimaActualizacion={ultimaActualizacion}
+          onActualizar={cargar} cargarMas={cargarMas} hayMas={hayMas}
+          onSeleccionarTarea={setTareaSeleccionada} tareaSeleccionada={tareaSeleccionada}
         />
         <PanelCentral tareaSeleccionada={tareaSeleccionada} />
       </div>
