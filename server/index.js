@@ -20,14 +20,26 @@ app.use('/api/', limiter);
 
 let tokenCache = { token: null, expiresAt: null };
 
-// IDs de los 27 activos de FEMA (equipos reales)
-const FEMA_ITEM_IDS = [
+// IDs de los 7 talleres de FEMA (ubicaciones directas)
+const FEMA_LOCATION_IDS = [
+  48905423, // FEMA raíz
+  48905428, // Taller Edificios
+  48905430, // Taller Correctivo
+  48905425, // Taller Externo
+  48905426, // Taller Llantas
+  48905427, // Taller Pintura
+  48905429, // Taller Preventivo
+  48905424  // Taller Remolques
+];
+
+// IDs directos de los 27 activos de FEMA
+const FEMA_ITEM_IDS = new Set([
   48905455, 48905440, 48905452, 48905453, 48905454, 48905458,
   48905441, 48905444, 48905431, 48905436, 48905445, 48905434,
   48905451, 48905447, 48905439, 48905433, 48905446, 48905432,
   48905443, 48905449, 48905435, 48905438, 48905448, 48905437,
   48905456, 48905450, 48905457
-];
+]);
 
 async function getFracttalToken() {
   const now = Date.now();
@@ -49,11 +61,37 @@ async function getFracttalToken() {
     const { access_token, expires_in } = response.data;
     tokenCache.token = access_token;
     tokenCache.expiresAt = now + (expires_in - 60) * 1000;
-    console.log('Token Fracttal obtenido correctamente');
+    console.log('Token Fracttal obtenido');
     return access_token;
   } catch (error) {
-    console.error('Error obteniendo token:', error.response?.data || error.message);
+    console.error('Error token:', error.response?.data || error.message);
     throw new Error('No se pudo autenticar con Fracttal');
+  }
+}
+
+async function getTareasDeUbicacion(token, locationId) {
+  try {
+    const response = await axios.get(
+      `${process.env.FRACTTAL_BASE_URL}/api/tasks/todo`,
+      {
+        headers: { Authorization: `Bearer ${token}` },
+        params: {
+          filter: JSON.stringify([{
+            property: 'id_location',
+            operator: 'eq',
+            value: locationId,
+            condition: 'and'
+          }]),
+          limit: 200,
+          start: 0,
+          sort: JSON.stringify([{ property: 'date_maintenance', direction: 'asc' }])
+        }
+      }
+    );
+    return response.data.data || [];
+  } catch (e) {
+    console.error(`Error ubicacion ${locationId}:`, e.message);
+    return [];
   }
 }
 
@@ -61,51 +99,67 @@ app.get('/api/health', (req, res) => {
   res.json({ status: 'ok', timestamp: new Date().toISOString() });
 });
 
+app.get('/api/debug', async (req, res) => {
+  try {
+    const token = await getFracttalToken();
+    // Traer muestra sin filtro para ver estructura
+    const response = await axios.get(
+      `${process.env.FRACTTAL_BASE_URL}/api/tasks/todo`,
+      {
+        headers: { Authorization: `Bearer ${token}` },
+        params: { limit: 3, start: 0 }
+      }
+    );
+    res.json(response.data);
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
 app.get('/api/tareas-pendientes', async (req, res) => {
   try {
     const token = await getFracttalToken();
-
-    // Traemos en lotes de 200 y filtramos por los IDs de FEMA en el servidor
     let todasLasTareas = [];
-    let start = 0;
-    const batchSize = 200;
-    let hayMas = true;
 
-    while (hayMas) {
+    // Estrategia 1: consultar por cada ubicacion FEMA
+    for (const locationId of FEMA_LOCATION_IDS) {
+      const tareas = await getTareasDeUbicacion(token, locationId);
+      todasLasTareas = todasLasTareas.concat(tareas);
+    }
+
+    console.log(`Total tareas antes de filtrar: ${todasLasTareas.length}`);
+
+    // Estrategia 2: si la estrategia 1 no trajo nada, filtrar por path_node en servidor
+    if (todasLasTareas.length === 0) {
       const response = await axios.get(
         `${process.env.FRACTTAL_BASE_URL}/api/tasks/todo`,
         {
-          headers: {
-            Authorization: `Bearer ${token}`,
-            'Content-Type': 'application/json'
-          },
+          headers: { Authorization: `Bearer ${token}` },
           params: {
-            limit: batchSize,
-            start,
+            limit: 200,
+            start: 0,
             sort: JSON.stringify([{ property: 'date_maintenance', direction: 'asc' }])
           }
         }
       );
-
-      const data = response.data;
-      const lote = data.data || [];
-
-      // Filtrar solo las tareas de activos FEMA
-      const tareasFEMA = lote.filter(t => FEMA_ITEM_IDS.includes(t.id_item));
-      todasLasTareas = todasLasTareas.concat(tareasFEMA);
-
-      // Si ya encontramos todas las de FEMA o no hay más páginas, parar
-      if (lote.length < batchSize || todasLasTareas.length >= FEMA_ITEM_IDS.length * 10) {
-        hayMas = false;
-      } else {
-        start += batchSize;
-      }
-
-      // Máximo 5 páginas para no sobrecargar
-      if (start >= 1000) hayMas = false;
+      const todas = response.data.data || [];
+      // Filtrar por path_node que contenga el path de FEMA
+      todasLasTareas = todas.filter(t => {
+        const pn = t.parent_path_node || t.path_node || '';
+        return pn.includes('48905423') || FEMA_ITEM_IDS.has(t.id_item);
+      });
+      console.log(`Estrategia 2 - tareas FEMA: ${todasLasTareas.length}`);
     }
 
-    const tareas = todasLasTareas.map(t => ({
+    // Eliminar duplicados por id
+    const vistas = new Set();
+    const unicas = todasLasTareas.filter(t => {
+      if (vistas.has(t.id)) return false;
+      vistas.add(t.id);
+      return true;
+    });
+
+    const tareas = unicas.map(t => ({
       id: t.id,
       id_item: t.id_item,
       activo_codigo: t.code || '',
@@ -122,8 +176,11 @@ app.get('/api/tareas-pendientes', async (req, res) => {
       delay: t.delay || 0,
       es_planificada: !!t.id_group_task,
       folio_ot: t.wo_folio || null,
-      solicitado_por: t.requested_by || ''
+      solicitado_por: t.requested_by || '',
+      path_node: t.parent_path_node || ''
     }));
+
+    console.log(`Tareas FEMA finales: ${tareas.length}`);
 
     res.json({
       success: true,
@@ -133,10 +190,10 @@ app.get('/api/tareas-pendientes', async (req, res) => {
     });
 
   } catch (error) {
-    console.error('Error tareas pendientes:', error.response?.data || error.message);
+    console.error('Error:', error.response?.data || error.message);
     res.status(500).json({
       success: false,
-      error: 'Error al obtener tareas pendientes',
+      error: 'Error al obtener tareas',
       detalle: error.message
     });
   }
@@ -151,7 +208,5 @@ if (process.env.NODE_ENV === 'production') {
 
 app.listen(PORT, () => {
   console.log(`Servidor FEMA corriendo en puerto ${PORT}`);
-  console.log(`Ambiente: ${process.env.NODE_ENV}`);
-  console.log(`Fracttal URL: ${process.env.FRACTTAL_BASE_URL}`);
-  console.log(`Filtrando ${FEMA_ITEM_IDS.length} activos de FEMA`);
+  console.log(`Filtrando ${FEMA_LOCATION_IDS.length} ubicaciones FEMA`);
 });
