@@ -10,46 +10,62 @@ app.use(express.json());
 app.use(cors());
 
 let tokenCache = { token: null, expiresAt: null };
-
-// URL correcta según documentación oficial Fracttal
 const FRACTTAL_TASKS_URL = 'https://app.fracttal.com/api/tasks_todo/';
 
 async function getFracttalToken() {
   const now = Date.now();
-  if (tokenCache.token && tokenCache.expiresAt && now < tokenCache.expiresAt) {
-    return tokenCache.token;
-  }
+  if (tokenCache.token && tokenCache.expiresAt && now < tokenCache.expiresAt) return tokenCache.token;
   const params = new URLSearchParams();
   params.append('grant_type', 'client_credentials');
   params.append('client_id', process.env.FRACTTAL_CLIENT_ID);
   params.append('client_secret', process.env.FRACTTAL_CLIENT_SECRET);
-  const r = await axios.post(
-    `${process.env.FRACTTAL_BASE_URL}/oauth/token`,
-    params,
-    { headers: { 'Content-Type': 'application/x-www-form-urlencoded' } }
-  );
+  const r = await axios.post(`${process.env.FRACTTAL_BASE_URL}/oauth/token`, params, {
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' }
+  });
   tokenCache.token = r.data.access_token;
   tokenCache.expiresAt = now + (r.data.expires_in - 60) * 1000;
-  console.log('Token obtenido correctamente');
   return tokenCache.token;
 }
 
-app.get('/api/health', (req, res) => res.json({ status: 'ok', endpoint: FRACTTAL_TASKS_URL }));
+// Cache del total real para no recalcularlo cada vez
+let totalCache = { valor: null, timestamp: null };
+
+async function getTotalReal(token) {
+  const ahora = Date.now();
+  // Cache válido por 5 minutos
+  if (totalCache.valor && totalCache.timestamp && ahora - totalCache.timestamp < 5 * 60 * 1000) {
+    return totalCache.valor;
+  }
+  // Hacer una petición pequeña solo para obtener el total de la API
+  const r = await axios.get(FRACTTAL_TASKS_URL, {
+    headers: { Authorization: `Bearer ${token}` },
+    params: { limit: 1, offset: 0 }
+  });
+  totalCache.valor = r.data.total || 0;
+  totalCache.timestamp = ahora;
+  return totalCache.valor;
+}
+
+app.get('/api/health', (req, res) => res.json({ status: 'ok' }));
 
 app.get('/api/tareas-pendientes', async (req, res) => {
   try {
     const token = await getFracttalToken();
     const page = parseInt(req.query.page) || 0;
     const limit = 50;
-    const offset = page * limit;
 
+    // Fractal ordena por id DESC (más recientes primero) — igual que la app
     const r = await axios.get(FRACTTAL_TASKS_URL, {
       headers: { Authorization: `Bearer ${token}` },
-      params: { limit, offset }
+      params: {
+        limit,
+        offset: page * limit
+        // Sin sort = orden natural de Fracttal = id DESC (más recientes primero)
+      }
     });
 
     const todas = r.data.data || [];
-    const total = r.data.total || 0;
+    const totalAPI = r.data.total || 0;
 
     // Filtrar solo las que tienen activo registrado
     const conActivo = todas.filter(t => (t.item_description || '').trim().length > 0);
@@ -72,21 +88,18 @@ app.get('/api/tareas-pendientes', async (req, res) => {
       solicitado_por: t.requested_by || ''
     }));
 
-    console.log(`Página ${page}: ${todas.length} traídas, ${tareas.length} con activo`);
-
     res.json({
       success: true,
-      total,
-      total_pagina: tareas.length,
+      total: totalAPI,           // total real de la API para el badge
       page,
-      hay_mas: offset + limit < total,
+      hay_mas: (page + 1) * limit < totalAPI,
       data: tareas,
       timestamp: new Date().toISOString()
     });
 
-  } catch (error) {
-    console.error('Error:', error.message);
-    res.status(500).json({ success: false, error: error.message });
+  } catch (e) {
+    console.error('Error:', e.message);
+    res.status(500).json({ success: false, error: e.message });
   }
 });
 
@@ -94,5 +107,4 @@ if (process.env.NODE_ENV === 'production') {
   app.use(express.static(path.join(__dirname, '../client/build')));
   app.get('*', (req, res) => res.sendFile(path.join(__dirname, '../client/build', 'index.html')));
 }
-
-app.listen(PORT, () => console.log(`Puerto ${PORT} - Endpoint: ${FRACTTAL_TASKS_URL}`));
+app.listen(PORT, () => console.log(`Puerto ${PORT}`));
