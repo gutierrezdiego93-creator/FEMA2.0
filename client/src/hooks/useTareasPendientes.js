@@ -20,7 +20,7 @@ export function useTareasPendientes() {
       const res = await axios.get('/api/tareas-pendientes', { params: { page: 0 } });
       if (res.data.success) {
         setTareas(res.data.data);
-        setTotal(res.data.total);
+        setTotal(res.data.total); // total real de la API
         setHayMas(res.data.hay_mas);
         setUltimaActualizacion(new Date());
       }
