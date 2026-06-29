@@ -9,8 +9,12 @@ const PORT = process.env.PORT || 3001;
 app.use(express.json());
 app.use(cors());
 
-let tokenCache = { token: null, expiresAt: null };
 const FRACTTAL_TASKS_URL = 'https://app.fracttal.com/api/tasks_todo/';
+let tokenCache = { token: null, expiresAt: null };
+
+// Cache de tareas para no recargar en cada página
+let tareasCache = { data: null, timestamp: null };
+const CACHE_TTL = 5 * 60 * 1000; // 5 minutos
 
 async function getFracttalToken() {
   const now = Date.now();
@@ -27,64 +31,45 @@ async function getFracttalToken() {
   return tokenCache.token;
 }
 
-app.get('/api/health', (req, res) => res.json({ status: 'ok' }));
-
-// Probar distintos parámetros de orden
-app.get('/api/orden-prueba', async (req, res) => {
-  try {
-    const token = await getFracttalToken();
-    const resultados = {};
-
-    // Prueba 1: ordering=-id
-    try {
-      const r1 = await axios.get(FRACTTAL_TASKS_URL, {
-        headers: { Authorization: `Bearer ${token}` },
-        params: { limit: 3, offset: 0, ordering: '-id' }
-      });
-      resultados.ordering_menos_id = (r1.data.data || []).map(t => ({ id: t.id, item: t.item_description }));
-    } catch(e) { resultados.ordering_menos_id = 'ERROR: ' + e.message; }
-
-    // Prueba 2: sort=-id
-    try {
-      const r2 = await axios.get(FRACTTAL_TASKS_URL, {
-        headers: { Authorization: `Bearer ${token}` },
-        params: { limit: 3, offset: 0, sort: '-id' }
-      });
-      resultados.sort_menos_id = (r2.data.data || []).map(t => ({ id: t.id, item: t.item_description }));
-    } catch(e) { resultados.sort_menos_id = 'ERROR: ' + e.message; }
-
-    // Prueba 3: order_by=-id
-    try {
-      const r3 = await axios.get(FRACTTAL_TASKS_URL, {
-        headers: { Authorization: `Bearer ${token}` },
-        params: { limit: 3, offset: 0, order_by: '-id' }
-      });
-      resultados.order_by_menos_id = (r3.data.data || []).map(t => ({ id: t.id, item: t.item_description }));
-    } catch(e) { resultados.order_by_menos_id = 'ERROR: ' + e.message; }
-
-    // Prueba 4: sin ordenar (default)
-    try {
-      const r4 = await axios.get(FRACTTAL_TASKS_URL, {
-        headers: { Authorization: `Bearer ${token}` },
-        params: { limit: 3, offset: 0 }
-      });
-      resultados.sin_orden = (r4.data.data || []).map(t => ({ id: t.id, item: t.item_description }));
-    } catch(e) { resultados.sin_orden = 'ERROR: ' + e.message; }
-
-    // Prueba 5: ordering=id (ascendente)
-    try {
-      const r5 = await axios.get(FRACTTAL_TASKS_URL, {
-        headers: { Authorization: `Bearer ${token}` },
-        params: { limit: 3, offset: 0, ordering: 'id' }
-      });
-      resultados.ordering_id_asc = (r5.data.data || []).map(t => ({ id: t.id, item: t.item_description }));
-    } catch(e) { resultados.ordering_id_asc = 'ERROR: ' + e.message; }
-
-    res.json(resultados);
-  } catch (e) {
-    res.status(500).json({ error: e.message });
+async function cargarTodasLasTareas(token) {
+  const ahora = Date.now();
+  if (tareasCache.data && tareasCache.timestamp && ahora - tareasCache.timestamp < CACHE_TTL) {
+    return tareasCache.data;
   }
-});
+
+  console.log('Cargando todas las tareas de Fracttal...');
+  let todas = [];
+  let offset = 0;
+  const limit = 200;
+  let total = 9999;
+
+  while (offset < total) {
+    const r = await axios.get(FRACTTAL_TASKS_URL, {
+      headers: { Authorization: `Bearer ${token}` },
+      params: { limit, offset }
+    });
+    const lote = r.data.data || [];
+    total = r.data.total || 0;
+    todas = todas.concat(lote);
+    offset += limit;
+    if (lote.length < limit) break;
+    console.log(`Cargadas ${todas.length} de ${total}`);
+  }
+
+  // Filtrar solo con activo registrado
+  const conActivo = todas.filter(t => (t.item_description || '').trim().length > 0);
+
+  // Ordenar por id descendente = igual que Fracttal
+  conActivo.sort((a, b) => b.id - a.id);
+
+  console.log(`Total con activo: ${conActivo.length} de ${total}`);
+
+  tareasCache.data = { tareas: conActivo, totalAPI: total };
+  tareasCache.timestamp = ahora;
+  return tareasCache.data;
+}
+
+app.get('/api/health', (req, res) => res.json({ status: 'ok' }));
 
 app.get('/api/tareas-pendientes', async (req, res) => {
   try {
@@ -92,46 +77,45 @@ app.get('/api/tareas-pendientes', async (req, res) => {
     const page = parseInt(req.query.page) || 0;
     const limit = 50;
 
-    const r = await axios.get(FRACTTAL_TASKS_URL, {
-      headers: { Authorization: `Bearer ${token}` },
-      params: { limit, offset: page * limit }
-    });
+    // Si es página 0, invalidar cache para refrescar
+    if (page === 0 && req.query.refresh === 'true') {
+      tareasCache.data = null;
+    }
 
-    const todas = r.data.data || [];
-    const totalAPI = r.data.total || 0;
-    const conActivo = todas.filter(t => (t.item_description || '').trim().length > 0);
+    const { tareas, totalAPI } = await cargarTodasLasTareas(token);
 
-    // Ordenar en el servidor por id descendente (igual que Fracttal)
-    conActivo.sort((a, b) => b.id - a.id);
-
-    const tareas = conActivo.map(t => ({
-      id: t.id,
-      activo_codigo: t.code || '',
-      activo_nombre: t.item_description || '',
-      tarea: t.description || '',
-      tipo: t.tasks_types_main_description || '',
-      tipo_2: t.tasks_types_description || '',
-      prioridad: t.priorities_description || '',
-      fecha_mantenimiento: t.date_maintenance || t.cal_date_maintenance || '',
-      duracion: t.duration || 0,
-      taller: t.parent_description || '',
-      plan: t.group_task_description || '',
-      delay: t.delay || 0,
-      es_planificada: !!t.id_group_task,
-      folio_ot: t.wo_folio || null,
-      solicitado_por: t.requested_by || ''
-    }));
+    const inicio = page * limit;
+    const fin = inicio + limit;
+    const pagina = tareas.slice(inicio, fin);
 
     res.json({
       success: true,
       total: totalAPI,
+      total_con_activo: tareas.length,
       page,
-      hay_mas: (page + 1) * limit < totalAPI,
-      data: tareas,
+      hay_mas: fin < tareas.length,
+      data: pagina.map(t => ({
+        id: t.id,
+        activo_codigo: t.code || '',
+        activo_nombre: t.item_description || '',
+        tarea: t.description || '',
+        tipo: t.tasks_types_main_description || '',
+        tipo_2: t.tasks_types_description || '',
+        prioridad: t.priorities_description || '',
+        fecha_mantenimiento: t.date_maintenance || t.cal_date_maintenance || '',
+        duracion: t.duration || 0,
+        taller: t.parent_description || '',
+        plan: t.group_task_description || '',
+        delay: t.delay || 0,
+        es_planificada: !!t.id_group_task,
+        folio_ot: t.wo_folio || null,
+        solicitado_por: t.requested_by || ''
+      })),
       timestamp: new Date().toISOString()
     });
 
   } catch (e) {
+    console.error('Error:', e.message);
     res.status(500).json({ success: false, error: e.message });
   }
 });
