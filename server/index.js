@@ -11,10 +11,6 @@ app.use(cors());
 
 const FRACTTAL_TASKS_URL = 'https://app.fracttal.com/api/tasks_todo/';
 let tokenCache = { token: null, expiresAt: null };
-let tareasCache = [];
-let cacheTimestamp = null;
-let cargando = false;
-const CACHE_TTL = 5 * 60 * 1000;
 
 async function getFracttalToken() {
   const now = Date.now();
@@ -31,89 +27,24 @@ async function getFracttalToken() {
   return tokenCache.token;
 }
 
-async function recargarCache() {
-  if (cargando) return;
-  cargando = true;
+app.get('/api/health', (req, res) => res.json({ status: 'ok' }));
+
+// Devuelve UNA página específica — el cliente pide todas en paralelo
+app.get('/api/tareas-pagina', async (req, res) => {
   try {
     const token = await getFracttalToken();
-    const limit = 500; // máximo posible por página
+    const offset = parseInt(req.query.offset) || 0;
+    const limit = parseInt(req.query.limit) || 500;
 
-    // Primera página para saber el total
-    const r0 = await axios.get(FRACTTAL_TASKS_URL, {
+    const r = await axios.get(FRACTTAL_TASKS_URL, {
       headers: { Authorization: `Bearer ${token}` },
-      params: { limit, offset: 0 },
+      params: { limit, offset },
       timeout: 30000
     });
-    const total = r0.data.total || 0;
-    let todas = [...(r0.data.data || [])];
-    console.log(`Total: ${total}, primera página: ${todas.length}`);
 
-    // Calcular offsets restantes
-    const offsets = [];
-    for (let offset = limit; offset < total; offset += limit) {
-      offsets.push(offset);
-    }
-
-    // Cargar TODO en paralelo de una vez
-    if (offsets.length > 0) {
-      const resultados = await Promise.all(
-        offsets.map(offset =>
-          axios.get(FRACTTAL_TASKS_URL, {
-            headers: { Authorization: `Bearer ${token}` },
-            params: { limit, offset },
-            timeout: 30000
-          }).then(r => r.data.data || []).catch(() => [])
-        )
-      );
-      resultados.forEach(lote => { todas = todas.concat(lote); });
-    }
-
-    console.log(`Descargadas: ${todas.length} de ${total}`);
-
-    // Filtrar con activo y ordenar por id DESC igual que Fracttal
-    const conActivo = todas
+    const data = (r.data.data || [])
       .filter(t => (t.item_description || '').trim().length > 0)
-      .sort((a, b) => b.id - a.id);
-
-    tareasCache = conActivo;
-    cacheTimestamp = Date.now();
-    console.log(`Cache listo: ${conActivo.length} con activo`);
-  } catch (e) {
-    console.error('Error cache:', e.message);
-  } finally {
-    cargando = false;
-  }
-}
-
-// Cargar al iniciar
-recargarCache();
-
-app.get('/api/health', (req, res) => {
-  res.json({
-    status: 'ok',
-    cache_tareas: tareasCache.length,
-    cache_edad_min: cacheTimestamp ? Math.round((Date.now() - cacheTimestamp) / 60000) : null,
-    cargando
-  });
-});
-
-app.get('/api/tareas-pendientes', async (req, res) => {
-  try {
-    if (tareasCache.length === 0 && !cargando) recargarCache();
-    if (req.query.refresh === 'true') recargarCache();
-    if (cacheTimestamp && Date.now() - cacheTimestamp > CACHE_TTL) recargarCache();
-
-    const page = parseInt(req.query.page) || 0;
-    const limit = 50;
-    const inicio = page * limit;
-
-    res.json({
-      success: true,
-      total: tareasCache.length,
-      page,
-      hay_mas: inicio + limit < tareasCache.length,
-      cargando,
-      data: tareasCache.slice(inicio, inicio + limit).map(t => ({
+      .map(t => ({
         id: t.id,
         activo_codigo: t.code || '',
         activo_nombre: t.item_description || '',
@@ -129,8 +60,13 @@ app.get('/api/tareas-pendientes', async (req, res) => {
         es_planificada: !!t.id_group_task,
         folio_ot: t.wo_folio || null,
         solicitado_por: t.requested_by || ''
-      })),
-      timestamp: new Date().toISOString()
+      }));
+
+    res.json({
+      success: true,
+      total: r.data.total || 0,
+      offset,
+      data
     });
   } catch (e) {
     res.status(500).json({ success: false, error: e.message });
