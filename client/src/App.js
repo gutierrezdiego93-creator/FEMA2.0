@@ -4,34 +4,16 @@ import Sidebar from './components/Sidebar';
 import PanelCentral from './components/PanelCentral';
 import { useTareasPendientes } from './hooks/useTareasPendientes';
 
-const estilos = {
-  app: {
-    fontFamily: "'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif",
-    height: '100vh',
-    display: 'flex',
-    flexDirection: 'column',
-    background: '#f7f9fc',
-    overflow: 'hidden'
-  },
-  cuerpo: {
-    display: 'flex',
-    flex: 1,
-    overflow: 'hidden'
-  }
-};
-
 export default function App() {
-  const { tareas, total, loading, error, ultimaActualizacion, cargar } = useTareasPendientes();
+  const { tareas, total, loading, error, ultimaActualizacion, cargar, cargarMas, hayMas, cargandoMas } = useTareasPendientes();
   const [tareaSeleccionada, setTareaSeleccionada] = useState(null);
 
-  useEffect(() => {
-    cargar();
-  }, [cargar]);
+  useEffect(() => { cargar(); }, [cargar]);
 
   return (
-    <div style={estilos.app}>
+    <div style={{ fontFamily: "'Inter', sans-serif", height: '100vh', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
       <Header />
-      <div style={estilos.cuerpo}>
+      <div style={{ display: 'flex', flex: 1, overflow: 'hidden' }}>
         <Sidebar
           tareas={tareas}
           total={total}
@@ -41,6 +23,9 @@ export default function App() {
           onActualizar={cargar}
           onSeleccionarTarea={setTareaSeleccionada}
           tareaSeleccionada={tareaSeleccionada}
+          cargarMas={cargarMas}
+          hayMas={hayMas}
+          cargandoMas={cargandoMas}
         />
         <PanelCentral tareaSeleccionada={tareaSeleccionada} />
       </div>
