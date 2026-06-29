@@ -17,15 +17,17 @@ export function useTareasPendientes() {
 
     try {
       const LIMIT = 500;
+      const ts = Date.now(); // timestamp para evitar caché del navegador
 
       // Primera página para saber el total
       const primera = await axios.get('/api/tareas-pagina', {
-        params: { offset: 0, limit: LIMIT }
+        params: { offset: 0, limit: LIMIT, ts },
+        headers: { 'Cache-Control': 'no-cache', 'Pragma': 'no-cache' }
       });
 
       const totalAPI = primera.data.total || 0;
       let acumuladas = [...primera.data.data];
-      setProgreso(Math.round((acumuladas.length / totalAPI) * 100));
+      setProgreso(Math.round((LIMIT / totalAPI) * 100));
 
       // Calcular offsets restantes
       const offsets = [];
@@ -33,13 +35,16 @@ export function useTareasPendientes() {
         offsets.push(offset);
       }
 
-      // Descargar en grupos de 3 para respetar límite del navegador
+      // Descargar en grupos de 3 con timestamp único por petición
       const GRUPO = 3;
       for (let i = 0; i < offsets.length; i += GRUPO) {
         const lote = offsets.slice(i, i + GRUPO);
         const resultados = await Promise.all(
           lote.map(offset =>
-            axios.get('/api/tareas-pagina', { params: { offset, limit: LIMIT } })
+            axios.get('/api/tareas-pagina', {
+              params: { offset, limit: LIMIT, ts: ts + offset }, // ts único por offset
+              headers: { 'Cache-Control': 'no-cache', 'Pragma': 'no-cache' }
+            })
               .then(r => r.data.data || [])
               .catch(() => [])
           )
@@ -47,7 +52,7 @@ export function useTareasPendientes() {
         resultados.forEach(loteData => {
           acumuladas = acumuladas.concat(loteData);
         });
-        setProgreso(Math.round((acumuladas.length / totalAPI) * 100));
+        setProgreso(Math.round((Math.min(acumuladas.length, totalAPI) / totalAPI) * 100));
       }
 
       // Ordenar por id DESC igual que Fracttal
