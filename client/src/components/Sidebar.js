@@ -53,7 +53,8 @@ export default function Sidebar({ tareas, total, loading, error, ultimaActualiza
 
     // Filtro de fecha — comparar solo la parte de fecha (YYYY-MM-DD)
     if (fechaDesde || fechaHasta) {
-      const fechaStr = t.fecha_mantenimiento ? t.fecha_mantenimiento.substring(0, 10) : null;
+      const fechaRaw = t.fecha_mantenimiento || '';
+      const fechaStr = fechaRaw.substring(0, 10); // "2026-04-25"
       if (!fechaStr) return false;
       if (fechaDesde && fechaStr < fechaDesde) return false;
       if (fechaHasta && fechaStr > fechaHasta) return false;
