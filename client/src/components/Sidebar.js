@@ -1,4 +1,4 @@
-import React, { useState, useRef, useCallback } from 'react';
+import React, { useState } from 'react';
 import TareaCard from './TareaCard';
 
 const s = {
@@ -23,7 +23,7 @@ const s = {
 
 const FILTROS = ['Todos', 'Atrasadas', 'Planificadas', 'No planificadas'];
 
-export default function Sidebar({ tareas, total, loading, error, ultimaActualizacion, onActualizar, onSeleccionarTarea, tareaSeleccionada, cargarMas, hayMas, cargandoMas }) {
+export default function Sidebar({ tareas, totalMostradas, loading, error, ultimaActualizacion, onActualizar, onSeleccionarTarea, tareaSeleccionada, cargarMas, hayMas, cargandoMas }) {
   const [busqueda, setBusqueda] = useState('');
   const [filtro, setFiltro] = useState('Todos');
   const [rotando, setRotando] = useState(false);
@@ -56,12 +56,13 @@ export default function Sidebar({ tareas, total, loading, error, ultimaActualiza
         <div style={s.fila}>
           <span style={s.titulo}>Tareas pendientes</span>
           <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-            <span style={s.badge}>{loading ? '...' : total.toLocaleString('es-MX')}</span>
+            <span style={s.badge}>{loading ? '...' : tareas.length}</span>
             <button style={s.btnRefresh} onClick={handleRefresh} disabled={loading} title="Actualizar">
               <span style={{ display: 'inline-block', transform: rotando ? 'rotate(360deg)' : 'none', transition: 'transform 0.8s' }}>↺</span>
             </button>
           </div>
         </div>
+
         <input
           type="text"
           placeholder="Buscar activo o tarea..."
@@ -69,6 +70,7 @@ export default function Sidebar({ tareas, total, loading, error, ultimaActualiza
           onChange={e => setBusqueda(e.target.value)}
           style={s.input}
         />
+
         <div style={s.filtros}>
           {FILTROS.map(f => (
             <button key={f} style={{ ...s.chip, ...(filtro === f ? s.chipActivo : {}) }} onClick={() => setFiltro(f)}>{f}</button>
@@ -91,20 +93,22 @@ export default function Sidebar({ tareas, total, loading, error, ultimaActualiza
           </div>
         )}
         {!loading && !error && filtradas.length === 0 && (
-          <div style={s.vacio}>{busqueda ? 'Sin resultados' : 'No hay tareas pendientes'}</div>
+          <div style={s.vacio}>{busqueda ? 'Sin resultados' : 'No hay tareas con activos registrados'}</div>
         )}
         {!loading && !error && filtradas.map(t => (
           <TareaCard key={t.id} tarea={t} onClick={onSeleccionarTarea} seleccionada={tareaSeleccionada?.id === t.id} />
         ))}
         {!loading && !error && hayMas && !busqueda && filtro === 'Todos' && (
           <button style={s.btnMas} onClick={cargarMas} disabled={cargandoMas}>
-            {cargandoMas ? 'Cargando...' : `Cargar más · ${tareas.length.toLocaleString()} de ${total.toLocaleString('es-MX')}`}
+            {cargandoMas ? 'Cargando...' : `Cargar más tareas`}
           </button>
         )}
       </div>
 
       {ultimaActualizacion && (
-        <div style={s.footer}>Actualizado: {ultimaActualizacion.toLocaleTimeString('es-MX')}</div>
+        <div style={s.footer}>
+          Mostrando {tareas.length} tareas con activo · {ultimaActualizacion.toLocaleTimeString('es-MX')}
+        </div>
       )}
     </aside>
   );
