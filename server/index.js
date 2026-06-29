@@ -32,28 +32,21 @@ async function getFracttalToken() {
 
 app.get('/api/health', (req, res) => res.json({ status: 'ok' }));
 
-// Ver exactamente qué trae la primera página completa
-app.get('/api/ver-campos', async (req, res) => {
+// Endpoint correcto según documentación oficial de Fracttal
+app.get('/api/ver-nuevo', async (req, res) => {
   try {
     const token = await getFracttalToken();
+    // URL correcta según docs: app.fracttal.com/api/tasks_todo/
     const r = await axios.get(
-      `${process.env.FRACTTAL_BASE_URL}/api/tasks/todo`,
+      'https://app.fracttal.com/api/tasks_todo/',
       {
         headers: { Authorization: `Bearer ${token}` },
-        params: { limit: 10, start: 0 }
+        params: { limit: 5, offset: 0 }
       }
     );
-    // Mostrar TODOS los campos con sus valores reales de los primeros 10
-    const registros = (r.data.data || []).map(t => {
-      const resultado = {};
-      Object.keys(t).forEach(k => {
-        resultado[k] = t[k];
-      });
-      return resultado;
-    });
-    res.json({ total: r.data.total, registros });
+    res.json({ total: r.data.total, campos: Object.keys(r.data.data?.[0] || {}), muestra: r.data.data?.slice(0, 3) });
   } catch (e) {
-    res.status(500).json({ error: e.message });
+    res.status(500).json({ error: e.message, detalle: e.response?.data, status: e.response?.status });
   }
 });
 
@@ -61,19 +54,27 @@ app.get('/api/tareas-pendientes', async (req, res) => {
   try {
     const token = await getFracttalToken();
     const page = parseInt(req.query.page) || 0;
+    const limit = 50;
+
+    // Usar endpoint correcto con item_description
     const r = await axios.get(
-      `${process.env.FRACTTAL_BASE_URL}/api/tasks/todo`,
+      'https://app.fracttal.com/api/tasks_todo/',
       {
         headers: { Authorization: `Bearer ${token}` },
         params: {
-          limit: 50,
-          start: page * 50,
-          sort: JSON.stringify([{ property: 'date_maintenance', direction: 'asc' }])
+          limit,
+          offset: page * limit
         }
       }
     );
+
     const todas = r.data.data || [];
-    const tareas = todas.map(t => ({
+    const total = r.data.total || 0;
+
+    // Filtrar solo las que tienen activo registrado
+    const conActivo = todas.filter(t => (t.item_description || '').trim().length > 0);
+
+    const tareas = conActivo.map(t => ({
       id: t.id,
       activo_codigo: t.code || '',
       activo_nombre: t.item_description || '',
@@ -81,18 +82,28 @@ app.get('/api/tareas-pendientes', async (req, res) => {
       tipo: t.tasks_types_main_description || '',
       tipo_2: t.tasks_types_description || '',
       prioridad: t.priorities_description || '',
-      fecha_mantenimiento: t.date_maintenance || '',
+      fecha_mantenimiento: t.date_maintenance || t.cal_date_maintenance || '',
       duracion: t.duration || 0,
       taller: t.parent_description || '',
-      plan: t.groups_tasks_description || '',
+      plan: t.group_task_description || '',
       delay: t.delay || 0,
       es_planificada: !!t.id_group_task,
       folio_ot: t.wo_folio || null,
       solicitado_por: t.requested_by || ''
     }));
-    res.json({ success: true, total: r.data.total, page, hay_mas: (page + 1) * 50 < r.data.total, data: tareas });
-  } catch (e) {
-    res.status(500).json({ success: false, error: e.message });
+
+    res.json({
+      success: true,
+      total,
+      page,
+      hay_mas: (page + 1) * limit < total,
+      data: tareas,
+      timestamp: new Date().toISOString()
+    });
+
+  } catch (error) {
+    console.error('Error:', error.message);
+    res.status(500).json({ success: false, error: error.message, detalle: error.response?.data });
   }
 });
 
