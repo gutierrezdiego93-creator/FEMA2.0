@@ -11,6 +11,9 @@ app.use(cors());
 
 let tokenCache = { token: null, expiresAt: null };
 
+// URL correcta según documentación oficial Fracttal
+const FRACTTAL_TASKS_URL = 'https://app.fracttal.com/api/tasks_todo/';
+
 async function getFracttalToken() {
   const now = Date.now();
   if (tokenCache.token && tokenCache.expiresAt && now < tokenCache.expiresAt) {
@@ -27,46 +30,23 @@ async function getFracttalToken() {
   );
   tokenCache.token = r.data.access_token;
   tokenCache.expiresAt = now + (r.data.expires_in - 60) * 1000;
+  console.log('Token obtenido correctamente');
   return tokenCache.token;
 }
 
-app.get('/api/health', (req, res) => res.json({ status: 'ok' }));
-
-// Endpoint correcto según documentación oficial de Fracttal
-app.get('/api/ver-nuevo', async (req, res) => {
-  try {
-    const token = await getFracttalToken();
-    // URL correcta según docs: app.fracttal.com/api/tasks_todo/
-    const r = await axios.get(
-      'https://app.fracttal.com/api/tasks_todo/',
-      {
-        headers: { Authorization: `Bearer ${token}` },
-        params: { limit: 5, offset: 0 }
-      }
-    );
-    res.json({ total: r.data.total, campos: Object.keys(r.data.data?.[0] || {}), muestra: r.data.data?.slice(0, 3) });
-  } catch (e) {
-    res.status(500).json({ error: e.message, detalle: e.response?.data, status: e.response?.status });
-  }
-});
+app.get('/api/health', (req, res) => res.json({ status: 'ok', endpoint: FRACTTAL_TASKS_URL }));
 
 app.get('/api/tareas-pendientes', async (req, res) => {
   try {
     const token = await getFracttalToken();
     const page = parseInt(req.query.page) || 0;
     const limit = 50;
+    const offset = page * limit;
 
-    // Usar endpoint correcto con item_description
-    const r = await axios.get(
-      'https://app.fracttal.com/api/tasks_todo/',
-      {
-        headers: { Authorization: `Bearer ${token}` },
-        params: {
-          limit,
-          offset: page * limit
-        }
-      }
-    );
+    const r = await axios.get(FRACTTAL_TASKS_URL, {
+      headers: { Authorization: `Bearer ${token}` },
+      params: { limit, offset }
+    });
 
     const todas = r.data.data || [];
     const total = r.data.total || 0;
@@ -92,18 +72,21 @@ app.get('/api/tareas-pendientes', async (req, res) => {
       solicitado_por: t.requested_by || ''
     }));
 
+    console.log(`Página ${page}: ${todas.length} traídas, ${tareas.length} con activo`);
+
     res.json({
       success: true,
       total,
+      total_pagina: tareas.length,
       page,
-      hay_mas: (page + 1) * limit < total,
+      hay_mas: offset + limit < total,
       data: tareas,
       timestamp: new Date().toISOString()
     });
 
   } catch (error) {
     console.error('Error:', error.message);
-    res.status(500).json({ success: false, error: error.message, detalle: error.response?.data });
+    res.status(500).json({ success: false, error: error.message });
   }
 });
 
@@ -111,4 +94,5 @@ if (process.env.NODE_ENV === 'production') {
   app.use(express.static(path.join(__dirname, '../client/build')));
   app.get('*', (req, res) => res.sendFile(path.join(__dirname, '../client/build', 'index.html')));
 }
-app.listen(PORT, () => console.log(`Puerto ${PORT}`));
+
+app.listen(PORT, () => console.log(`Puerto ${PORT} - Endpoint: ${FRACTTAL_TASKS_URL}`));
