@@ -31,45 +31,63 @@ async function getFracttalToken() {
   return tokenCache.token;
 }
 
+async function fetchPagina(token, offset, limit) {
+  try {
+    const r = await axios.get(FRACTTAL_TASKS_URL, {
+      headers: { Authorization: `Bearer ${token}` },
+      params: { limit, offset },
+      timeout: 15000
+    });
+    return { data: r.data.data || [], total: r.data.total || 0 };
+  } catch (e) {
+    console.error(`Error página offset=${offset}:`, e.message);
+    return { data: [], total: 0 };
+  }
+}
+
 async function recargarCache() {
   if (cargando) return;
   cargando = true;
   try {
     const token = await getFracttalToken();
-    let todas = [];
-    let offset = 0;
     const limit = 200;
-    let total = 9999;
 
-    while (offset < total) {
-      const r = await axios.get(FRACTTAL_TASKS_URL, {
-        headers: { Authorization: `Bearer ${token}` },
-        params: { limit, offset },
-        timeout: 30000
-      });
-      const lote = r.data.data || [];
-      total = r.data.total || 0;
-      todas = todas.concat(lote);
-      offset += limit;
-      if (lote.length < limit) break;
+    // Primera página para saber el total
+    const primera = await fetchPagina(token, 0, limit);
+    const total = primera.total;
+    console.log(`Total API: ${total} tareas`);
+
+    // Calcular todos los offsets necesarios
+    const offsets = [];
+    for (let offset = limit; offset < total; offset += limit) {
+      offsets.push(offset);
     }
 
-    // Filtrar con activo y ordenar por id DESC igual que Fracttal
-    const conActivo = todas
+    // Cargar en paralelo de 5 en 5
+    let todasLasPaginas = [...primera.data];
+    const BATCH = 5;
+    for (let i = 0; i < offsets.length; i += BATCH) {
+      const lote = offsets.slice(i, i + BATCH);
+      const resultados = await Promise.all(lote.map(offset => fetchPagina(token, offset, limit)));
+      resultados.forEach(r => { todasLasPaginas = todasLasPaginas.concat(r.data); });
+      console.log(`Cargadas ${todasLasPaginas.length} de ${total}`);
+    }
+
+    // Filtrar con activo y ordenar por id DESC
+    const conActivo = todasLasPaginas
       .filter(t => (t.item_description || '').trim().length > 0)
       .sort((a, b) => b.id - a.id);
 
     tareasCache = conActivo;
     cacheTimestamp = Date.now();
-    console.log(`Cache listo: ${conActivo.length} tareas con activo (de ${total} total)`);
+    console.log(`Cache listo: ${conActivo.length} con activo de ${total} total`);
   } catch (e) {
-    console.error('Error recargando cache:', e.message);
+    console.error('Error cache:', e.message);
   } finally {
     cargando = false;
   }
 }
 
-// Cargar al iniciar el servidor
 recargarCache();
 
 app.get('/api/health', (req, res) => {
@@ -83,20 +101,9 @@ app.get('/api/health', (req, res) => {
 
 app.get('/api/tareas-pendientes', async (req, res) => {
   try {
-    // Si el cache está vacío esperar a que cargue
-    if (tareasCache.length === 0 && !cargando) {
-      await recargarCache();
-    }
-
-    // Si pidieron refresh, recargar en background
-    if (req.query.refresh === 'true') {
-      recargarCache();
-    }
-
-    // Si cache expiró, recargar en background (y servir lo que hay)
-    if (cacheTimestamp && Date.now() - cacheTimestamp > CACHE_TTL) {
-      recargarCache();
-    }
+    if (tareasCache.length === 0 && !cargando) recargarCache();
+    if (req.query.refresh === 'true') recargarCache();
+    if (cacheTimestamp && Date.now() - cacheTimestamp > CACHE_TTL) recargarCache();
 
     const page = parseInt(req.query.page) || 0;
     const limit = 50;
@@ -128,9 +135,7 @@ app.get('/api/tareas-pendientes', async (req, res) => {
       })),
       timestamp: new Date().toISOString()
     });
-
   } catch (e) {
-    console.error('Error:', e.message);
     res.status(500).json({ success: false, error: e.message });
   }
 });
@@ -139,4 +144,4 @@ if (process.env.NODE_ENV === 'production') {
   app.use(express.static(path.join(__dirname, '../client/build')));
   app.get('*', (req, res) => res.sendFile(path.join(__dirname, '../client/build', 'index.html')));
 }
-app.listen(PORT, () => console.log(`Puerto ${PORT} - Cargando cache inicial...`));
+app.listen(PORT, () => console.log(`Puerto ${PORT}`));
