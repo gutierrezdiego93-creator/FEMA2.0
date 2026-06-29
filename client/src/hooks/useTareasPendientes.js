@@ -3,7 +3,7 @@ import axios from 'axios';
 
 export function useTareasPendientes() {
   const [tareas, setTareas] = useState([]);
-  const [totalMostradas, setTotalMostradas] = useState(0);
+  const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(false);
   const [cargandoMas, setCargandoMas] = useState(false);
   const [error, setError] = useState(null);
@@ -20,7 +20,7 @@ export function useTareasPendientes() {
       const res = await axios.get('/api/tareas-pendientes', { params: { page: 0 } });
       if (res.data.success) {
         setTareas(res.data.data);
-        setTotalMostradas(res.data.total_pagina);
+        setTotal(res.data.total);
         setHayMas(res.data.hay_mas);
         setUltimaActualizacion(new Date());
       }
@@ -39,7 +39,6 @@ export function useTareasPendientes() {
       const res = await axios.get('/api/tareas-pendientes', { params: { page: nextPage } });
       if (res.data.success) {
         setTareas(prev => [...prev, ...res.data.data]);
-        setTotalMostradas(prev => prev + res.data.total_pagina);
         setPage(nextPage);
         setHayMas(res.data.hay_mas);
       }
@@ -50,5 +49,5 @@ export function useTareasPendientes() {
     }
   }, [page, cargandoMas]);
 
-  return { tareas, totalMostradas, loading, cargandoMas, error, ultimaActualizacion, cargar, cargarMas, hayMas };
+  return { tareas, total, loading, cargandoMas, error, ultimaActualizacion, cargar, cargarMas, hayMas };
 }
