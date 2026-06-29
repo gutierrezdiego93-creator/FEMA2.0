@@ -27,25 +27,6 @@ async function getFracttalToken() {
   return tokenCache.token;
 }
 
-// Cache del total real para no recalcularlo cada vez
-let totalCache = { valor: null, timestamp: null };
-
-async function getTotalReal(token) {
-  const ahora = Date.now();
-  // Cache válido por 5 minutos
-  if (totalCache.valor && totalCache.timestamp && ahora - totalCache.timestamp < 5 * 60 * 1000) {
-    return totalCache.valor;
-  }
-  // Hacer una petición pequeña solo para obtener el total de la API
-  const r = await axios.get(FRACTTAL_TASKS_URL, {
-    headers: { Authorization: `Bearer ${token}` },
-    params: { limit: 1, offset: 0 }
-  });
-  totalCache.valor = r.data.total || 0;
-  totalCache.timestamp = ahora;
-  return totalCache.valor;
-}
-
 app.get('/api/health', (req, res) => res.json({ status: 'ok' }));
 
 app.get('/api/tareas-pendientes', async (req, res) => {
@@ -54,20 +35,19 @@ app.get('/api/tareas-pendientes', async (req, res) => {
     const page = parseInt(req.query.page) || 0;
     const limit = 50;
 
-    // Fractal ordena por id DESC (más recientes primero) — igual que la app
     const r = await axios.get(FRACTTAL_TASKS_URL, {
       headers: { Authorization: `Bearer ${token}` },
       params: {
         limit,
-        offset: page * limit
-        // Sin sort = orden natural de Fracttal = id DESC (más recientes primero)
+        offset: page * limit,
+        // Orden igual que Fracttal: id descendente (más recientes primero)
+        ordering: '-id'
       }
     });
 
     const todas = r.data.data || [];
     const totalAPI = r.data.total || 0;
 
-    // Filtrar solo las que tienen activo registrado
     const conActivo = todas.filter(t => (t.item_description || '').trim().length > 0);
 
     const tareas = conActivo.map(t => ({
@@ -90,7 +70,7 @@ app.get('/api/tareas-pendientes', async (req, res) => {
 
     res.json({
       success: true,
-      total: totalAPI,           // total real de la API para el badge
+      total: totalAPI,
       page,
       hay_mas: (page + 1) * limit < totalAPI,
       data: tareas,
