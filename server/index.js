@@ -30,9 +30,7 @@ async function getFracttalToken() {
   return tokenCache.token;
 }
 
-app.get('/api/health', (req, res) => {
-  res.json({ status: 'ok' });
-});
+app.get('/api/health', (req, res) => res.json({ status: 'ok' }));
 
 app.get('/api/tareas-pendientes', async (req, res) => {
   try {
@@ -41,6 +39,12 @@ app.get('/api/tareas-pendientes', async (req, res) => {
     const limit = 50;
     const start = page * limit;
 
+    // Mismo filtro que usa Fracttal internamente para mostrar 3,260
+    const filter = JSON.stringify([
+      { property: 'show_todo', operator: 'eq', value: true, condition: 'and' },
+      { property: 'is_wo_creating', operator: 'eq', value: false, condition: 'and' }
+    ]);
+
     const r = await axios.get(
       `${process.env.FRACTTAL_BASE_URL}/api/tasks/todo`,
       {
@@ -48,12 +52,14 @@ app.get('/api/tareas-pendientes', async (req, res) => {
         params: {
           limit,
           start,
+          filter,
           sort: JSON.stringify([{ property: 'date_maintenance', direction: 'asc' }])
         }
       }
     );
 
     const data = r.data.data || [];
+    const total = r.data.total || 0;
 
     const tareas = data.map(t => ({
       id: t.id,
@@ -76,8 +82,9 @@ app.get('/api/tareas-pendientes', async (req, res) => {
 
     res.json({
       success: true,
-      total: r.data.total || 0,
+      total,
       page,
+      hay_mas: start + limit < total,
       data: tareas,
       timestamp: new Date().toISOString()
     });
