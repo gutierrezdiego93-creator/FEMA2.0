@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import TareaCard from './TareaCard';
 
 const s = {
@@ -13,27 +13,27 @@ const s = {
   chip: { fontSize: '11px', padding: '3px 10px', borderRadius: '12px', border: '1px solid #e2e8f0', cursor: 'pointer', background: '#fff', color: '#4a5568' },
   chipActivo: { background: '#4299e1', color: '#fff', borderColor: '#4299e1' },
   lista: { flex: 1, overflowY: 'auto', padding: '12px' },
-  loading: { display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '48px 16px', gap: '12px' },
+  loading: { display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '48px 16px', gap: '16px' },
   spinner: { width: '28px', height: '28px', border: '3px solid #e2e8f0', borderTop: '3px solid #4299e1', borderRadius: '50%', animation: 'spin 0.8s linear infinite' },
+  progressBar: { width: '200px', height: '4px', background: '#e2e8f0', borderRadius: '2px', overflow: 'hidden' },
+  progressFill: { height: '100%', background: '#4299e1', borderRadius: '2px', transition: 'width 0.3s ease' },
   error: { margin: '16px', padding: '12px', background: '#fff5f5', border: '1px solid #fc8181', borderRadius: '8px', color: '#c53030', fontSize: '13px', textAlign: 'center' },
   vacio: { padding: '48px 16px', textAlign: 'center', color: '#718096', fontSize: '14px' },
   footer: { fontSize: '11px', color: '#a0aec0', textAlign: 'center', padding: '8px', borderTop: '1px solid #e2e8f0' },
-  btnMas: { width: '100%', padding: '10px', background: '#fff', border: '1px solid #e2e8f0', borderRadius: '8px', color: '#4299e1', fontSize: '13px', cursor: 'pointer', marginTop: '8px', fontWeight: '500' }
+  contador: { fontSize: '11px', color: '#a0aec0', textAlign: 'center', padding: '6px', borderTop: '1px solid #f0f0f0' }
 };
 
 const FILTROS = ['Todos', 'Atrasadas', 'Planificadas', 'No planificadas'];
+const VISIBLE_STEP = 100; // cuántas mostrar por vez al hacer scroll
 
-export default function Sidebar({ tareas, total, loading, error, ultimaActualizacion, onActualizar, onSeleccionarTarea, tareaSeleccionada, cargarMas, hayMas, cargandoMas }) {
+export default function Sidebar({ tareas, total, loading, progreso, error, ultimaActualizacion, onActualizar, onSeleccionarTarea, tareaSeleccionada }) {
   const [busqueda, setBusqueda] = useState('');
   const [filtro, setFiltro] = useState('Todos');
   const [rotando, setRotando] = useState(false);
+  const [visibles, setVisibles] = useState(VISIBLE_STEP);
+  const listaRef = useRef(null);
 
-  const handleRefresh = async () => {
-    setRotando(true);
-    await onActualizar();
-    setTimeout(() => setRotando(false), 800);
-  };
-
+  // Filtrar tareas
   const filtradas = tareas.filter(t => {
     const txt = busqueda.toLowerCase();
     const ok = !txt ||
@@ -48,14 +48,40 @@ export default function Sidebar({ tareas, total, loading, error, ultimaActualiza
     return true;
   });
 
+  // Reset visibles cuando cambia filtro/búsqueda
+  useEffect(() => { setVisibles(VISIBLE_STEP); }, [busqueda, filtro]);
+
+  // Scroll infinito automático
+  useEffect(() => {
+    const lista = listaRef.current;
+    if (!lista) return;
+    const handleScroll = () => {
+      const { scrollTop, scrollHeight, clientHeight } = lista;
+      if (scrollTop + clientHeight >= scrollHeight - 200) {
+        setVisibles(prev => Math.min(prev + VISIBLE_STEP, filtradas.length));
+      }
+    };
+    lista.addEventListener('scroll', handleScroll);
+    return () => lista.removeEventListener('scroll', handleScroll);
+  }, [filtradas.length]);
+
+  const handleRefresh = async () => {
+    setRotando(true);
+    await onActualizar();
+    setTimeout(() => setRotando(false), 800);
+  };
+
+  const mostradas = filtradas.slice(0, visibles);
+
   return (
     <aside style={s.sidebar}>
       <style>{`@keyframes spin{to{transform:rotate(360deg)}} .lista::-webkit-scrollbar{width:4px} .lista::-webkit-scrollbar-thumb{background:#cbd5e0;border-radius:2px}`}</style>
+
       <div style={s.header}>
         <div style={s.fila}>
           <span style={s.titulo}>Tareas pendientes</span>
           <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-            <span style={s.badge}>{loading ? '...' : tareas.length}</span>
+            <span style={s.badge}>{loading ? '...' : total.toLocaleString('es-MX')}</span>
             <button style={s.btnRefresh} onClick={handleRefresh} disabled={loading} title="Actualizar">
               <span style={{ display: 'inline-block', transform: rotando ? 'rotate(360deg)' : 'none', transition: 'transform 0.8s' }}>↺</span>
             </button>
@@ -69,11 +95,15 @@ export default function Sidebar({ tareas, total, loading, error, ultimaActualiza
         </div>
       </div>
 
-      <div className="lista" style={s.lista}>
+      <div ref={listaRef} className="lista" style={s.lista}>
         {loading && (
           <div style={s.loading}>
             <div style={s.spinner} />
-            <span style={{ fontSize: '13px', color: '#718096' }}>Cargando tareas...</span>
+            <span style={{ fontSize: '13px', color: '#718096' }}>Descargando tareas...</span>
+            <div style={s.progressBar}>
+              <div style={{ ...s.progressFill, width: `${progreso}%` }} />
+            </div>
+            <span style={{ fontSize: '11px', color: '#a0aec0' }}>{progreso}%</span>
           </div>
         )}
         {!loading && error && (
@@ -86,19 +116,19 @@ export default function Sidebar({ tareas, total, loading, error, ultimaActualiza
         {!loading && !error && filtradas.length === 0 && (
           <div style={s.vacio}>{busqueda ? 'Sin resultados' : 'No hay tareas pendientes'}</div>
         )}
-        {!loading && !error && filtradas.map(t => (
+        {!loading && !error && mostradas.map(t => (
           <TareaCard key={t.id} tarea={t} onClick={onSeleccionarTarea} seleccionada={tareaSeleccionada?.id === t.id} />
         ))}
-        {!loading && !error && hayMas && !busqueda && filtro === 'Todos' && (
-          <button style={s.btnMas} onClick={cargarMas} disabled={cargandoMas}>
-            {cargandoMas ? 'Cargando...' : `Cargar más · ${tareas.length} de ${total.toLocaleString('es-MX')}`}
-          </button>
+        {!loading && visibles < filtradas.length && (
+          <div style={s.contador}>
+            Mostrando {visibles.toLocaleString()} de {filtradas.length.toLocaleString()} — baja para ver más
+          </div>
         )}
       </div>
 
       {ultimaActualizacion && (
         <div style={s.footer}>
-          {tareas.length} tareas con activo · {ultimaActualizacion.toLocaleTimeString('es-MX')}
+          {total.toLocaleString('es-MX')} tareas · {ultimaActualizacion.toLocaleTimeString('es-MX')}
         </div>
       )}
     </aside>
