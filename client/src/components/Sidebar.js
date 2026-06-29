@@ -23,7 +23,7 @@ const s = {
 
 const FILTROS = ['Todos', 'Atrasadas', 'Planificadas', 'No planificadas'];
 
-export default function Sidebar({ tareas, totalMostradas, loading, error, ultimaActualizacion, onActualizar, onSeleccionarTarea, tareaSeleccionada, cargarMas, hayMas, cargandoMas }) {
+export default function Sidebar({ tareas, total, loading, error, ultimaActualizacion, onActualizar, onSeleccionarTarea, tareaSeleccionada, cargarMas, hayMas, cargandoMas }) {
   const [busqueda, setBusqueda] = useState('');
   const [filtro, setFiltro] = useState('Todos');
   const [rotando, setRotando] = useState(false);
@@ -51,7 +51,6 @@ export default function Sidebar({ tareas, totalMostradas, loading, error, ultima
   return (
     <aside style={s.sidebar}>
       <style>{`@keyframes spin{to{transform:rotate(360deg)}} .lista::-webkit-scrollbar{width:4px} .lista::-webkit-scrollbar-thumb{background:#cbd5e0;border-radius:2px}`}</style>
-
       <div style={s.header}>
         <div style={s.fila}>
           <span style={s.titulo}>Tareas pendientes</span>
@@ -62,15 +61,7 @@ export default function Sidebar({ tareas, totalMostradas, loading, error, ultima
             </button>
           </div>
         </div>
-
-        <input
-          type="text"
-          placeholder="Buscar activo o tarea..."
-          value={busqueda}
-          onChange={e => setBusqueda(e.target.value)}
-          style={s.input}
-        />
-
+        <input type="text" placeholder="Buscar activo o tarea..." value={busqueda} onChange={e => setBusqueda(e.target.value)} style={s.input} />
         <div style={s.filtros}>
           {FILTROS.map(f => (
             <button key={f} style={{ ...s.chip, ...(filtro === f ? s.chipActivo : {}) }} onClick={() => setFiltro(f)}>{f}</button>
@@ -93,21 +84,21 @@ export default function Sidebar({ tareas, totalMostradas, loading, error, ultima
           </div>
         )}
         {!loading && !error && filtradas.length === 0 && (
-          <div style={s.vacio}>{busqueda ? 'Sin resultados' : 'No hay tareas con activos registrados'}</div>
+          <div style={s.vacio}>{busqueda ? 'Sin resultados' : 'No hay tareas pendientes'}</div>
         )}
         {!loading && !error && filtradas.map(t => (
           <TareaCard key={t.id} tarea={t} onClick={onSeleccionarTarea} seleccionada={tareaSeleccionada?.id === t.id} />
         ))}
         {!loading && !error && hayMas && !busqueda && filtro === 'Todos' && (
           <button style={s.btnMas} onClick={cargarMas} disabled={cargandoMas}>
-            {cargandoMas ? 'Cargando...' : `Cargar más tareas`}
+            {cargandoMas ? 'Cargando...' : `Cargar más · ${tareas.length} de ${total.toLocaleString('es-MX')}`}
           </button>
         )}
       </div>
 
       {ultimaActualizacion && (
         <div style={s.footer}>
-          Mostrando {tareas.length} tareas con activo · {ultimaActualizacion.toLocaleTimeString('es-MX')}
+          {tareas.length} tareas con activo · {ultimaActualizacion.toLocaleTimeString('es-MX')}
         </div>
       )}
     </aside>
