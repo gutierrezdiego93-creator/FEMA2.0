@@ -17,53 +17,50 @@ export function useTareasPendientes() {
 
     try {
       const LIMIT = 500;
-      const ts = Date.now(); // timestamp para evitar caché del navegador
+      let acumuladas = [];
+      let offset = 0;
+      let totalAPI = 99999;
+      let pagina = 0;
 
-      // Primera página para saber el total
-      const primera = await axios.get('/api/tareas-pagina', {
-        params: { offset: 0, limit: LIMIT, ts },
-        headers: { 'Cache-Control': 'no-cache', 'Pragma': 'no-cache' }
-      });
-
-      const totalAPI = primera.data.total || 0;
-      let acumuladas = [...primera.data.data];
-      setProgreso(Math.round((LIMIT / totalAPI) * 100));
-
-      // Calcular offsets restantes
-      const offsets = [];
-      for (let offset = LIMIT; offset < totalAPI; offset += LIMIT) {
-        offsets.push(offset);
-      }
-
-      // Descargar en grupos de 3 con timestamp único por petición
-      const GRUPO = 3;
-      for (let i = 0; i < offsets.length; i += GRUPO) {
-        const lote = offsets.slice(i, i + GRUPO);
-        const resultados = await Promise.all(
-          lote.map(offset =>
-            axios.get('/api/tareas-pagina', {
-              params: { offset, limit: LIMIT, ts: ts + offset }, // ts único por offset
-              headers: { 'Cache-Control': 'no-cache', 'Pragma': 'no-cache' }
-            })
-              .then(r => r.data.data || [])
-              .catch(() => [])
-          )
-        );
-        resultados.forEach(loteData => {
-          acumuladas = acumuladas.concat(loteData);
+      // Cargar una página a la vez, secuencial
+      while (offset < totalAPI) {
+        const ts = Date.now() + offset; // evitar caché
+        const r = await axios.get('/api/tareas-pagina', {
+          params: { offset, limit: LIMIT, ts },
+          headers: { 'Cache-Control': 'no-cache' },
+          timeout: 30000
         });
-        setProgreso(Math.round((Math.min(acumuladas.length, totalAPI) / totalAPI) * 100));
+
+        if (!r.data.success) break;
+
+        totalAPI = r.data.total || 0;
+        acumuladas = acumuladas.concat(r.data.data || []);
+        offset += LIMIT;
+        pagina++;
+
+        // Actualizar progreso en tiempo real
+        const pct = Math.round((offset / totalAPI) * 100);
+        setProgreso(Math.min(pct, 99));
+
+        // Mostrar tareas parciales mientras carga
+        if (pagina % 2 === 0) {
+          const parciales = [...acumuladas].sort((a, b) => b.id - a.id);
+          setTareas(parciales);
+          setTotal(parciales.length);
+        }
+
+        if (r.data.data.length < LIMIT) break;
       }
 
-      // Ordenar por id DESC igual que Fracttal
+      // Orden final por id DESC igual que Fracttal
       acumuladas.sort((a, b) => b.id - a.id);
-
       setTareas(acumuladas);
       setTotal(acumuladas.length);
       setProgreso(100);
       setUltimaActualizacion(new Date());
 
     } catch (err) {
+      console.error('Error:', err.message);
       setError('Error de conexión con Fracttal');
     } finally {
       setLoading(false);
