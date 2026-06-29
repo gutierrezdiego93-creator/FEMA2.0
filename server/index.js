@@ -30,19 +30,16 @@ async function getFracttalToken() {
 function getFechas() {
   const hoy = new Date();
   const desde = new Date(hoy);
-  desde.setMonth(desde.getMonth() - 3); // 3 meses atrás
+  desde.setMonth(desde.getMonth() - 3);
   const hasta = new Date(hoy);
-  hasta.setDate(hasta.getDate() + 90); // 90 días adelante
+  hasta.setDate(hasta.getDate() + 90);
   return {
     since: desde.toISOString().split('T')[0],
     until: hasta.toISOString().split('T')[0]
   };
 }
 
-app.get('/api/health', (req, res) => {
-  const { since, until } = getFechas();
-  res.json({ status: 'ok', rango: { since, until } });
-});
+app.get('/api/health', (req, res) => res.json({ status: 'ok' }));
 
 app.get('/api/tareas-pendientes', async (req, res) => {
   res.set({ 'Cache-Control': 'no-store', 'Pragma': 'no-cache' });
@@ -50,30 +47,39 @@ app.get('/api/tareas-pendientes', async (req, res) => {
     const token = await getFracttalToken();
     const { since, until } = getFechas();
 
-    // Una sola llamada — 333 tareas caben en limit=500
-    const r = await axios.get(FRACTTAL_TASKS_URL, {
-      headers: { Authorization: `Bearer ${token}` },
-      params: {
-        since,
-        until,
-        limit: 500,
-        offset: 0
-      },
-      timeout: 30000
-    });
+    // La API limita a 100 por página — paginamos en el servidor
+    let todas = [];
+    let offset = 0;
+    const LIMIT = 100;
 
-    const todas = r.data.data || [];
-    const totalAPI = r.data.total || 0;
+    while (true) {
+      console.log(`Cargando offset=${offset} rango ${since} → ${until}`);
+      const r = await axios.get(FRACTTAL_TASKS_URL, {
+        headers: { Authorization: `Bearer ${token}` },
+        params: { since, until, limit: LIMIT, offset },
+        timeout: 30000
+      });
 
-    // Filtrar solo con activo registrado
+      const lote = r.data.data || [];
+      const totalAPI = r.data.total || 0;
+      todas = todas.concat(lote);
+
+      console.log(`offset=${offset}: ${lote.length} registros, total=${totalAPI}`);
+
+      // Parar si llegamos al total o si la página vino incompleta
+      if (lote.length < LIMIT || offset + LIMIT >= totalAPI) break;
+      offset += LIMIT;
+    }
+
+    console.log(`Total descargado: ${todas.length}`);
+
     const conActivo = todas
       .filter(t => (t.item_description || '').trim().length > 0)
-      .sort((a, b) => b.id - a.id); // orden igual que Fracttal
+      .sort((a, b) => b.id - a.id);
 
     res.json({
       success: true,
       total: conActivo.length,
-      total_api: totalAPI,
       rango: { since, until },
       data: conActivo.map(t => ({
         id: t.id,
@@ -105,4 +111,4 @@ if (process.env.NODE_ENV === 'production') {
   app.use(express.static(path.join(__dirname, '../client/build')));
   app.get('*', (req, res) => res.sendFile(path.join(__dirname, '../client/build', 'index.html')));
 }
-app.listen(PORT, () => console.log(`Puerto ${PORT} - Rango: 3 meses atrás + 90 días adelante`));
+app.listen(PORT, () => console.log(`Puerto ${PORT}`));
