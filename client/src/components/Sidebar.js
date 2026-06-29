@@ -51,12 +51,12 @@ export default function Sidebar({ tareas, total, loading, error, ultimaActualiza
     if (filtro === 'Planificadas' && !t.es_planificada) return false;
     if (filtro === 'No planificadas' && t.es_planificada) return false;
 
-    // Filtro de fecha
+    // Filtro de fecha — comparar solo la parte de fecha (YYYY-MM-DD)
     if (fechaDesde || fechaHasta) {
-      const fecha = t.fecha_mantenimiento ? new Date(t.fecha_mantenimiento) : null;
-      if (!fecha) return false;
-      if (fechaDesde && fecha < new Date(fechaDesde)) return false;
-      if (fechaHasta && fecha > new Date(fechaHasta + 'T23:59:59')) return false;
+      const fechaStr = t.fecha_mantenimiento ? t.fecha_mantenimiento.substring(0, 10) : null;
+      if (!fechaStr) return false;
+      if (fechaDesde && fechaStr < fechaDesde) return false;
+      if (fechaHasta && fechaStr > fechaHasta) return false;
     }
 
     return true;
