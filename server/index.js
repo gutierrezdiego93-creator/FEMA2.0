@@ -32,69 +32,36 @@ async function getFracttalToken() {
 
 app.get('/api/health', (req, res) => res.json({ status: 'ok' }));
 
-// Prueba 1: filtrar num_iterations is null
-app.get('/api/prueba1', async (req, res) => {
-  try {
-    const token = await getFracttalToken();
-    const r = await axios.get(`${process.env.FRACTTAL_BASE_URL}/api/tasks/todo`, {
-      headers: { Authorization: `Bearer ${token}` },
-      params: {
-        limit: 5, start: 0,
-        filter: JSON.stringify([
-          { property: 'num_iterations', operator: 'is', value: null, condition: 'and' }
-        ])
-      }
-    });
-    res.json({ total: r.data.total, muestra: (r.data.data||[]).map(t=>({ id:t.id, num_iterations:t.num_iterations, is_cyclical:t.is_cyclical, description:t.description })) });
-  } catch (e) { res.status(500).json({ error: e.message, detalle: e.response?.data }); }
-});
-
-// Prueba 2: filtrar is_cyclical = false
-app.get('/api/prueba2', async (req, res) => {
-  try {
-    const token = await getFracttalToken();
-    const r = await axios.get(`${process.env.FRACTTAL_BASE_URL}/api/tasks/todo`, {
-      headers: { Authorization: `Bearer ${token}` },
-      params: {
-        limit: 5, start: 0,
-        filter: JSON.stringify([
-          { property: 'is_cyclical', operator: 'eq', value: false, condition: 'and' }
-        ])
-      }
-    });
-    res.json({ total: r.data.total, muestra: (r.data.data||[]).map(t=>({ id:t.id, num_iterations:t.num_iterations, is_cyclical:t.is_cyclical, description:t.description })) });
-  } catch (e) { res.status(500).json({ error: e.message, detalle: e.response?.data }); }
-});
-
-// Prueba 3: filtrar replay_counter = 0 (sin iteraciones previas)
-app.get('/api/prueba3', async (req, res) => {
-  try {
-    const token = await getFracttalToken();
-    const r = await axios.get(`${process.env.FRACTTAL_BASE_URL}/api/tasks/todo`, {
-      headers: { Authorization: `Bearer ${token}` },
-      params: {
-        limit: 5, start: 0,
-        filter: JSON.stringify([
-          { property: 'replay_counter', operator: 'eq', value: 0, condition: 'and' }
-        ])
-      }
-    });
-    res.json({ total: r.data.total, muestra: (r.data.data||[]).map(t=>({ id:t.id, replay_counter:t.replay_counter, num_iterations:t.num_iterations, is_cyclical:t.is_cyclical, description:t.description })) });
-  } catch (e) { res.status(500).json({ error: e.message, detalle: e.response?.data }); }
-});
-
 app.get('/api/tareas-pendientes', async (req, res) => {
   try {
     const token = await getFracttalToken();
     const page = parseInt(req.query.page) || 0;
-    const r = await axios.get(`${process.env.FRACTTAL_BASE_URL}/api/tasks/todo`, {
-      headers: { Authorization: `Bearer ${token}` },
-      params: {
-        limit: 50, start: page * 50,
-        sort: JSON.stringify([{ property: 'date_maintenance', direction: 'asc' }])
+    const limit = 200; // traemos más por página para compensar el filtro
+    const start = page * limit;
+
+    const r = await axios.get(
+      `${process.env.FRACTTAL_BASE_URL}/api/tasks/todo`,
+      {
+        headers: { Authorization: `Bearer ${token}` },
+        params: {
+          limit,
+          start,
+          sort: JSON.stringify([{ property: 'date_maintenance', direction: 'asc' }])
+        }
       }
+    );
+
+    const todas = r.data.data || [];
+    const totalAPI = r.data.total || 0;
+
+    // FILTRO: solo tareas que tienen activo registrado
+    // item_description debe tener contenido real (no vacío, no solo espacios)
+    const conActivo = todas.filter(t => {
+      const nombre = (t.item_description || '').trim();
+      return nombre.length > 0;
     });
-    const tareas = (r.data.data||[]).map(t => ({
+
+    const tareas = conActivo.map(t => ({
       id: t.id,
       activo_codigo: t.code || '',
       activo_nombre: t.item_description || '',
@@ -111,12 +78,31 @@ app.get('/api/tareas-pendientes', async (req, res) => {
       folio_ot: t.wo_folio || null,
       solicitado_por: t.requested_by || ''
     }));
-    res.json({ success: true, total: r.data.total, page, hay_mas: (page+1)*50 < r.data.total, data: tareas });
-  } catch (e) { res.status(500).json({ success: false, error: e.message }); }
+
+    // Calcular si hay más páginas
+    const hayMas = start + limit < totalAPI;
+
+    console.log(`Página ${page}: ${todas.length} totales, ${tareas.length} con activo`);
+
+    res.json({
+      success: true,
+      total_api: totalAPI,        // total real de la API (9243)
+      total_pagina: tareas.length, // cuántos con activo en esta página
+      page,
+      hay_mas: hayMas,
+      data: tareas,
+      timestamp: new Date().toISOString()
+    });
+
+  } catch (error) {
+    console.error('Error:', error.message);
+    res.status(500).json({ success: false, error: error.message });
+  }
 });
 
 if (process.env.NODE_ENV === 'production') {
   app.use(express.static(path.join(__dirname, '../client/build')));
   app.get('*', (req, res) => res.sendFile(path.join(__dirname, '../client/build', 'index.html')));
 }
+
 app.listen(PORT, () => console.log(`Puerto ${PORT}`));
